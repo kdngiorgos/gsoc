@@ -1,0 +1,21 @@
+# env files
+.env
+web/.env
+etl/.env
+
+# Next.js
+web/node_modules/
+web/.next/
+
+# Prisma generated client (regenerated on install)
+web/node_modules/
+
+# Python
+etl/__pycache__/
+etl/**/__pycache__/
+etl/.pytest_cache/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

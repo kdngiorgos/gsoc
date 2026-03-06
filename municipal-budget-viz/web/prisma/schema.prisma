@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Document {
+  id           Int                @id @default(autoincrement())
+  filename     String
+  docType      DocType
+  municipality String
+  year         Int
+  importedAt   DateTime           @default(now())
+  budgetItems  BudgetItem[]
+  projects     TechnicalProject[]
+}
+
+enum DocType {
+  BUDGET
+  TECHNICAL_PROGRAM
+}
+
+model BudgetCategory {
+  id          Int              @id @default(autoincrement())
+  code        String           @unique
+  description String
+  level       Int
+  parentId    Int?
+  parent      BudgetCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    BudgetCategory[] @relation("CategoryTree")
+  items       BudgetItem[]
+}
+
+model BudgetItem {
+  id              Int            @id @default(autoincrement())
+  document        Document       @relation(fields: [documentId], references: [id])
+  documentId      Int
+  category        BudgetCategory @relation(fields: [categoryId], references: [id])
+  categoryId      Int
+  description     String
+  amount2024      Decimal?       @db.Decimal(15, 2)
+  amountMidYear   Decimal?       @db.Decimal(15, 2)
+  amount2025      Decimal?       @db.Decimal(15, 2)
+  amountVariance  Decimal?       @db.Decimal(15, 2)
+}
+
+model TechnicalProject {
+  id          Int                    @id @default(autoincrement())
+  document    Document               @relation(fields: [documentId], references: [id])
+  documentId  Int
+  projectCode String
+  description String
+  section     String
+  budgetRef   String?
+  items       TechnicalProjectItem[]
+}
+
+model TechnicalProjectItem {
+  id        Int              @id @default(autoincrement())
+  project   TechnicalProject @relation(fields: [projectId], references: [id])
+  projectId Int
+  label     String
+  amount    Decimal          @db.Decimal(15, 2)
+}
