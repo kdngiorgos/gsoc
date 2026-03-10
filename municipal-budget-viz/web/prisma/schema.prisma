@@ -8,14 +8,14 @@ datasource db {
 }
 
 model Document {
-  id           Int                @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   filename     String
   docType      DocType
   municipality String
   year         Int
-  importedAt   DateTime           @default(now())
-  budgetItems  BudgetItem[]
-  projects     TechnicalProject[]
+  adaCode      String?
+  importedAt   DateTime  @default(now())
+  items        Item[]
 }
 
 enum DocType {
@@ -23,45 +23,20 @@ enum DocType {
   TECHNICAL_PROGRAM
 }
 
-model BudgetCategory {
-  id          Int              @id @default(autoincrement())
-  code        String           @unique
-  description String
-  level       Int
-  parentId    Int?
-  parent      BudgetCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children    BudgetCategory[] @relation("CategoryTree")
-  items       BudgetItem[]
-}
-
-model BudgetItem {
-  id              Int            @id @default(autoincrement())
-  document        Document       @relation(fields: [documentId], references: [id])
-  documentId      Int
-  category        BudgetCategory @relation(fields: [categoryId], references: [id])
-  categoryId      Int
-  description     String
-  amount2024      Decimal?       @db.Decimal(15, 2)
-  amountMidYear   Decimal?       @db.Decimal(15, 2)
-  amount2025      Decimal?       @db.Decimal(15, 2)
-  amountVariance  Decimal?       @db.Decimal(15, 2)
-}
-
-model TechnicalProject {
-  id          Int                    @id @default(autoincrement())
-  document    Document               @relation(fields: [documentId], references: [id])
+model Item {
+  id          Int          @id @default(autoincrement())
   documentId  Int
-  projectCode String
+  document    Document     @relation(fields: [documentId], references: [id])
+  code        String
   description String
-  section     String
-  budgetRef   String?
-  items       TechnicalProjectItem[]
+  parentCode  String?
+  amounts     ItemAmount[]
 }
 
-model TechnicalProjectItem {
-  id        Int              @id @default(autoincrement())
-  project   TechnicalProject @relation(fields: [projectId], references: [id])
-  projectId Int
-  label     String
-  amount    Decimal          @db.Decimal(15, 2)
+model ItemAmount {
+  id      Int     @id @default(autoincrement())
+  itemId  Int
+  item    Item    @relation(fields: [itemId], references: [id])
+  label   String
+  amount  Decimal @db.Decimal(15, 2)
 }

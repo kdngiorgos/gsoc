@@ -2,10 +2,14 @@
 """ETL pipeline CLI for Greek municipal budget PDFs.
 
 Usage:
+  # Manual folder / file
   python pipeline.py --input ../budget_past/ --type auto
   python pipeline.py --input ../budget_plan/ --type auto
   python pipeline.py --input path/to/single.pdf --type budget
-  python pipeline.py --input path/to/single.pdf --type technical
+
+  # Auto-discover from Diavgeia
+  python pipeline.py --municipality "Αχαρνές" --year 2025
+  python pipeline.py --municipality "Αχαρνές" --year 2025 --dest /tmp/pdfs
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -32,10 +37,10 @@ logger = logging.getLogger("pipeline")
 # ---------------------------------------------------------------------------
 
 _BUDGET_KEYWORDS = (
-    "δαπανεσ", "δαπανών", "προυπολογισμ", "τευχοσ", "265_"
+    "δαπανεσ", "δαπανών", "προυπολογισμ", "τεύχ", "265_", "2_"
 )
 _TECHNICAL_KEYWORDS = (
-    "τεχνικο", "τεχνικό", "techniko", "ty_"
+    "τεχνικο", "τεχνικό", "techniko", "ty_", "1_"
 )
 
 
@@ -52,17 +57,19 @@ def detect_doc_type(pdf_path: Path) -> str:
     if any(kw in lower_name for kw in _TECHNICAL_KEYWORDS):
         return "TECHNICAL_PROGRAM"
 
-    # Try first-page text
+    # Try first few pages' text
     try:
         import pdfplumber
         with pdfplumber.open(str(pdf_path)) as pdf:
-            text = (pdf.pages[0].extract_text() or "").lower()
+            text = " ".join(
+                (p.extract_text() or "") for p in pdf.pages[:3]
+            ).lower()
         if any(kw in text for kw in ("προϋπολογισμ", "δαπανεσ", "εσοδα")):
             return "BUDGET"
-        if "τεχνικό πρόγραμμα" in text or "τεχνικο προγραμμα" in text:
+        if any(kw in text for kw in ("τεχνικ", "εργων", "εργών", "technical")):
             return "TECHNICAL_PROGRAM"
     except Exception as exc:
-        logger.debug("First-page detection failed for %s: %s", pdf_path.name, exc)
+        logger.debug("Content-based detection failed for %s: %s", pdf_path.name, exc)
 
     logger.warning("Cannot auto-detect type for %s; defaulting to BUDGET", pdf_path.name)
     return "BUDGET"
@@ -80,11 +87,16 @@ def extract_year(pdf_path: Path) -> int:
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def process_pdf(pdf_path: Path, doc_type: str) -> None:
-    from loaders.db_loader import register_document, load_budget, load_technical
+def process_pdf(
+    pdf_path: Path,
+    doc_type: str,
+    municipality: str = "Αχαρνές",
+    ada_code: str | None = None,
+    max_pages: int | None = None,
+) -> None:
+    from loaders.db_loader import register_document, load_items
 
     year = extract_year(pdf_path)
-    municipality = "Αχαρνές"  # TODO: make configurable or detect from PDF
 
     logger.info("Processing %s  type=%s  year=%d", pdf_path.name, doc_type, year)
 
@@ -93,21 +105,21 @@ def process_pdf(pdf_path: Path, doc_type: str) -> None:
         doc_type=doc_type,
         municipality=municipality,
         year=year,
+        ada_code=ada_code,
     )
     logger.info("Registered document id=%d", document_id)
 
     if doc_type == "BUDGET":
         from extractors.budget_extractor import extract_budget
-        result = extract_budget(pdf_path)
-        load_budget(document_id, result["categories"], result["items"])
-
+        items = extract_budget(pdf_path, max_pages=max_pages)
     elif doc_type == "TECHNICAL_PROGRAM":
         from extractors.technical_extractor import extract_technical
-        result = extract_technical(pdf_path)
-        load_technical(document_id, result["projects"])
-
+        items = extract_technical(pdf_path, max_pages=max_pages)
     else:
         logger.error("Unknown doc_type: %s", doc_type)
+        return
+
+    load_items(document_id, items)
 
 
 def collect_pdfs(input_path: Path) -> list[Path]:
@@ -116,17 +128,96 @@ def collect_pdfs(input_path: Path) -> list[Path]:
     return sorted(input_path.glob("*.pdf"))
 
 
+# ---------------------------------------------------------------------------
+# Diavgeia discovery mode
+# ---------------------------------------------------------------------------
+
+_DIAVGEIA_TYPE_MAP = {
+    "Β1": "BUDGET",
+    "Β2": "BUDGET",
+    "Ε":  "TECHNICAL_PROGRAM",
+}
+
+
+def run_diavgeia_mode(municipality: str, year: int, dest_dir: Path, forced_type: str | None) -> None:
+    """Discover, download, and process PDFs from Diavgeia."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    from discovery.diavgeia_client import discover_and_download
+
+    logger.info("Diavgeia mode: municipality=%s  year=%d", municipality, year)
+    decisions = discover_and_download(municipality, year, dest_dir)
+
+    if not decisions:
+        logger.warning("No decisions found for %s %d on Diavgeia", municipality, year)
+        return
+
+    success, failure = 0, 0
+    for dec in decisions:
+        pdf_path = Path(dec["pdf_path"])
+        ada_code = dec["ada"]
+        doc_type = forced_type or _DIAVGEIA_TYPE_MAP.get(dec["doc_type"]) or detect_doc_type(pdf_path)
+        try:
+            process_pdf(pdf_path, doc_type, municipality=municipality, ada_code=ada_code)
+            success += 1
+        except Exception as exc:
+            logger.error("Failed to process %s: %s", pdf_path.name, exc, exc_info=True)
+            failure += 1
+
+    logger.info("Done. success=%d  failure=%d", success, failure)
+    if failure:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Municipal budget PDF ETL pipeline")
-    parser.add_argument("--input", required=True, help="PDF file or directory of PDFs")
+
+    # Input source — exactly one of --input or --municipality
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--input", help="PDF file or directory of PDFs (manual mode)")
+    source.add_argument(
+        "--municipality",
+        help="Municipality name in Greek (Diavgeia discovery mode)",
+    )
+
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=2025,
+        help="Budget year for Diavgeia search (default: 2025)",
+    )
+    parser.add_argument(
+        "--dest",
+        default=None,
+        help="Download directory for Diavgeia PDFs (default: system temp dir)",
+    )
     parser.add_argument(
         "--type",
         choices=["auto", "budget", "technical"],
         default="auto",
-        help="Document type (default: auto-detect)",
+        help="Document type override (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="Limit extraction to first N pages (for fast testing on large files)",
     )
     args = parser.parse_args()
 
+    type_map = {"budget": "BUDGET", "technical": "TECHNICAL_PROGRAM", "auto": None}
+    forced_type = type_map[args.type]
+
+    # ---- Diavgeia discovery mode ----
+    if args.municipality:
+        dest_dir = Path(args.dest) if args.dest else Path(tempfile.mkdtemp(prefix="diavgeia_"))
+        run_diavgeia_mode(args.municipality, args.year, dest_dir, forced_type)
+        return
+
+    # ---- Manual folder / file mode ----
     input_path = Path(args.input)
     if not input_path.exists():
         logger.error("Input path does not exist: %s", input_path)
@@ -137,14 +228,11 @@ def main() -> None:
         logger.warning("No PDF files found at %s", input_path)
         sys.exit(0)
 
-    type_map = {"budget": "BUDGET", "technical": "TECHNICAL_PROGRAM", "auto": None}
-    forced_type = type_map[args.type]
-
     success, failure = 0, 0
     for pdf in pdfs:
         doc_type = forced_type or detect_doc_type(pdf)
         try:
-            process_pdf(pdf, doc_type)
+            process_pdf(pdf, doc_type, max_pages=args.max_pages)
             success += 1
         except Exception as exc:
             logger.error("Failed to process %s: %s", pdf.name, exc, exc_info=True)

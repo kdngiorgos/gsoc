@@ -7,11 +7,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "documentId is required" }, { status: 400 });
   }
 
-  const projects = await prisma.technicalProject.findMany({
+  const items = await prisma.item.findMany({
     where: { documentId },
-    include: { items: true },
-    orderBy: [{ section: "asc" }, { id: "asc" }],
+    include: { amounts: true },
+    orderBy: { id: "asc" },
   });
 
-  return NextResponse.json(projects);
+  return NextResponse.json(items);
 }

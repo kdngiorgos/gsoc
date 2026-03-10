@@ -13,8 +13,7 @@ export async function GET() {
       importedAt: true,
       _count: {
         select: {
-          budgetItems: true,
-          projects: true,
+          items: true,
         },
       },
     },

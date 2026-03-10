@@ -4,16 +4,51 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ---------------------------------------------------------------------------
+# Flags
+# ---------------------------------------------------------------------------
 CLEAR=false
-for arg in "$@"; do
-  [[ "$arg" == "--clear" ]] && CLEAR=true
+SKIP_ETL=false
+MUNICIPALITY=""
+YEAR=2025
+
+usage() {
+  cat <<EOF
+Usage: ./run.sh [OPTIONS]
+
+Options:
+  --clear              Wipe DB volume, node_modules, migrations and start fresh
+  --skip-etl           Skip ETL (just start web server; DB already has data)
+  --municipality NAME  Discover PDFs from Diavgeia for NAME (Greek, e.g. "Αχαρνές")
+  --year YEAR          Year for Diavgeia search (default: 2025)
+  -h, --help           Show this help
+
+Examples:
+  ./run.sh                              # normal start: ETL local PDFs + web
+  ./run.sh --skip-etl                   # DB already loaded, just open web
+  ./run.sh --municipality "Αχαρνές"     # auto-discover from Diavgeia
+  ./run.sh --clear                      # wipe everything and rebuild
+EOF
+  exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --clear)       CLEAR=true ;;
+    --skip-etl)    SKIP_ETL=true ;;
+    --municipality) MUNICIPALITY="$2"; shift ;;
+    --year)        YEAR="$2"; shift ;;
+    -h|--help)     usage ;;
+    *) echo "Unknown option: $1"; usage ;;
+  esac
+  shift
 done
 
 # ---------------------------------------------------------------------------
-# --clear: wipe DB volume, node_modules, prisma migrations, etl .env
+# --clear: wipe DB volume, node_modules, prisma migrations
 # ---------------------------------------------------------------------------
 if $CLEAR; then
-  echo "==> [clear] Stopping and removing containers + volumes..."
+  echo "==> [clear] Stopping containers + volumes..."
   docker compose down -v --remove-orphans 2>/dev/null || true
 
   echo "==> [clear] Removing Prisma migrations..."
@@ -22,7 +57,7 @@ if $CLEAR; then
   echo "==> [clear] Removing node_modules and Next.js cache..."
   rm -rf web/node_modules web/.next
 
-  echo "==> [clear] Done clearing. Starting fresh..."
+  echo "==> [clear] Done. Starting fresh..."
 fi
 
 # ---------------------------------------------------------------------------
@@ -31,10 +66,11 @@ fi
 echo "==> Starting postgres..."
 docker compose up -d postgres
 
-echo "==> Waiting for postgres to be healthy..."
+echo "==> Waiting for postgres to be ready..."
 until docker compose exec -T postgres pg_isready -U budget -d municipal_budget -q; do
   sleep 1
 done
+echo "    postgres is ready."
 
 # ---------------------------------------------------------------------------
 # Web: install deps, migrate, generate client
@@ -46,11 +82,19 @@ if [[ ! -f .env ]]; then
   echo "==> Created web/.env from example"
 fi
 
-echo "==> Installing web dependencies..."
-npm install --prefer-offline 2>/dev/null || npm install
+if [[ ! -d node_modules ]]; then
+  echo "==> Installing web dependencies..."
+  npm install
+else
+  echo "==> Web deps already installed (skipping npm install)"
+fi
 
-echo "==> Running Prisma migration..."
-npx prisma migrate dev --name init
+echo "==> Running Prisma migrations..."
+if [[ -d prisma/migrations && "$(ls -A prisma/migrations 2>/dev/null)" ]]; then
+  npx prisma migrate deploy
+else
+  npx prisma migrate dev --name init
+fi
 
 echo "==> Generating Prisma client..."
 npx prisma generate
@@ -58,31 +102,53 @@ npx prisma generate
 cd "$SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
-# ETL: install deps, run pipeline
+# Ollama health check
 # ---------------------------------------------------------------------------
-cd etl
-
-if [[ ! -f .env ]]; then
-  cp .env.example .env
-  echo "==> Created etl/.env from example"
+echo "==> Checking Ollama server..."
+if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+  echo "ERROR: Ollama is not running. Start it with: ollama serve"
+  echo "       Then pull the model: ollama pull qwen2.5:7b"
+  exit 1
 fi
+echo "    Ollama is running."
 
-echo "==> Installing ETL dependencies..."
-pip install -r requirements.txt -q
+# ---------------------------------------------------------------------------
+# ETL
+# ---------------------------------------------------------------------------
+if ! $SKIP_ETL; then
+  cd etl
 
-echo "==> Running ETL on budget_past/..."
-python pipeline.py --input ../../budget_past/ --type auto
+  if [[ ! -f .env ]]; then
+    cp .env.example .env
+    echo "==> Created etl/.env from example"
+  fi
 
-echo "==> Running ETL on budget_plan/..."
-python pipeline.py --input ../../budget_plan/ --type auto
+  echo "==> Installing ETL dependencies..."
+  pip install -r requirements.txt -q
 
-cd "$SCRIPT_DIR"
+  if [[ -n "$MUNICIPALITY" ]]; then
+    echo "==> Running ETL via Diavgeia for municipality='$MUNICIPALITY' year=$YEAR ..."
+    python pipeline.py --municipality "$MUNICIPALITY" --year "$YEAR"
+  else
+    echo "==> Running ETL on budget_past/..."
+    python pipeline.py --input ../../budget_past/ --type auto
+
+    echo "==> Running ETL on budget_plan/..."
+    python pipeline.py --input ../../budget_plan/ --type auto
+  fi
+
+  cd "$SCRIPT_DIR"
+else
+  echo "==> [skip-etl] Skipping ETL pipeline."
+fi
 
 # ---------------------------------------------------------------------------
 # Start Next.js dev server
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> Starting Next.js dev server at http://localhost:3000 ..."
-echo "    (Press Ctrl+C or run stop.sh to stop)"
+echo "============================================================"
+echo "  http://localhost:3000"
+echo "  Press Ctrl+C to stop."
+echo "============================================================"
 echo ""
 cd web && npm run dev

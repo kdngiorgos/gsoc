@@ -8,6 +8,7 @@ CREATE TABLE "Document" (
     "docType" "DocType" NOT NULL,
     "municipality" TEXT NOT NULL,
     "year" INTEGER NOT NULL,
+    "adaCode" TEXT,
     "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Document_pkey" PRIMARY KEY ("id")
@@ -20,6 +21,7 @@ CREATE TABLE "BudgetCategory" (
     "description" TEXT NOT NULL,
     "level" INTEGER NOT NULL,
     "parentId" INTEGER,
+    "isLeaf" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "BudgetCategory_pkey" PRIMARY KEY ("id")
 );
