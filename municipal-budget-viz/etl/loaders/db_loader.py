@@ -84,8 +84,12 @@ def register_document(
     year: int,
     ada_code: Optional[str] = None,
     conn=None,
-) -> int:
-    """Insert a Document record and return its id."""
+) -> tuple[int, bool]:
+    """Insert or find a Document record.
+
+    Returns (id, is_new). If a document with the same (filename, municipality,
+    year) already exists the existing id is returned and is_new=False.
+    """
     own_conn = conn is None
     if own_conn:
         conn = get_connection()
@@ -95,13 +99,28 @@ def register_document(
             with conn.cursor() as cur:
                 cur.execute(
                     """
+                    SELECT id FROM "Document"
+                    WHERE filename = %s AND municipality = %s AND year = %s
+                    """,
+                    (filename, municipality, year),
+                )
+                row = cur.fetchone()
+                if row:
+                    logger.warning(
+                        "Document already in DB (id=%d, filename=%s, municipality=%s, year=%d); skipping.",
+                        row[0], filename, municipality, year,
+                    )
+                    return row[0], False
+
+                cur.execute(
+                    """
                     INSERT INTO "Document" (filename, "docType", municipality, year, "adaCode")
                     VALUES (%s, %s::"DocType", %s, %s, %s)
                     RETURNING id
                     """,
                     (filename, doc_type, municipality, year, ada_code),
                 )
-                return cur.fetchone()[0]
+                return cur.fetchone()[0], True
     finally:
         if own_conn:
             conn.close()

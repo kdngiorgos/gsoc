@@ -16,14 +16,27 @@ from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_SUBTOTAL_RE = re.compile(r"σύνολ[οα]|άθροισμα", re.IGNORECASE)
+_SUBTOTAL_RE = re.compile(r"^\s*(σύνολ[οα]|άθροισμα)\s*$", re.IGNORECASE)
 
 _AMOUNT_FIELDS = [
-    ("amount2024",    "ΠΥ 2024"),
-    ("amountMidYear", "Αναμορφωμένος"),
-    ("amount2025",    "ΠΥ 2025"),
+    ("amount2024",    "Προηγούμενο Έτος"),
+    ("amountMidYear", "Αναθεωρημένος"),
+    ("amount2025",    "Τρέχον Έτος"),
     ("amountVariance","Διαφορά"),
 ]
+
+from decimal import Decimal
+
+def _compute_variance(amounts: list[dict]) -> list[dict]:
+    """Append Διαφορά if the LLM did not return it but the inputs are available."""
+    label_map = {a["label"]: a["amount"] for a in amounts}
+    if "Διαφορά" in label_map:
+        return amounts          # LLM provided it — keep as-is
+    current = label_map.get("Τρέχον Έτος")
+    base = label_map.get("Αναθεωρημένος") or label_map.get("Προηγούμενο Έτος")
+    if current is not None and base is not None:
+        return amounts + [{"label": "Διαφορά", "amount": current - base}]
+    return amounts
 
 
 def _backend() -> Callable:
@@ -84,7 +97,7 @@ def extract_budget(pdf_path: Path, max_pages: Optional[int] = None) -> List[Dict
             "code": code,
             "description": r.get("description", ""),
             "parentCode": _derive_parent_code(code),
-            "amounts": amounts,
+            "amounts": _compute_variance(amounts),
         })
 
     logger.info("Extracted %d items from %s", len(result), pdf_path.name)

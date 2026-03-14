@@ -36,7 +36,7 @@ def _call_claude(client: anthropic.Anthropic, prompt_template: str, text: str) -
     try:
         msg = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )

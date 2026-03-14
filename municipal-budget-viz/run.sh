@@ -102,17 +102,6 @@ npx prisma generate
 cd "$SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
-# Ollama health check
-# ---------------------------------------------------------------------------
-echo "==> Checking Ollama server..."
-if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-  echo "ERROR: Ollama is not running. Start it with: ollama serve"
-  echo "       Then pull the model: ollama pull qwen2.5:7b"
-  exit 1
-fi
-echo "    Ollama is running."
-
-# ---------------------------------------------------------------------------
 # ETL
 # ---------------------------------------------------------------------------
 if ! $SKIP_ETL; then
@@ -121,6 +110,20 @@ if ! $SKIP_ETL; then
   if [[ ! -f .env ]]; then
     cp .env.example .env
     echo "==> Created etl/.env from example"
+  fi
+
+  # Check whether Claude (Haiku) or Ollama will be used
+  if grep -qE '^ANTHROPIC_API_KEY=.+' .env 2>/dev/null; then
+    echo "==> ANTHROPIC_API_KEY detected — using Claude Haiku (skipping Ollama check)."
+  else
+    echo "==> Checking Ollama server (no ANTHROPIC_API_KEY found)..."
+    if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+      echo "ERROR: Ollama is not running. Start it with: ollama serve"
+      echo "       Then pull the model: ollama pull qwen2.5:7b"
+      echo "       Or set ANTHROPIC_API_KEY in etl/.env to use Claude Haiku instead."
+      exit 1
+    fi
+    echo "    Ollama is running."
   fi
 
   echo "==> Installing ETL dependencies..."

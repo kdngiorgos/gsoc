@@ -1,0 +1,34 @@
+Concept
+Build a standalone tool that extracts structured data from municipal budget and technical program PDFs, making financial information accessible, searchable, and comparable across all 332 Greek municipalities.
+
+User Story
+As a citizen who wants to understand how my local government spends public money, I want to search, visualize, and compare budget data and infrastructure projects across municipalities and over time, so that I can engage meaningfully with public spending decisions without needing to parse hundreds of pages of PDF documents.
+
+Context
+All 332 Greek municipalities publish annual budgets and technical programs as PDFs containing:
+
+Hundreds of pages of financial data and spending categories
+Lists of infrastructure projects
+Budget allocations and amounts
+This information is critical for civic engagement but is essentially inaccessible to non-experts in its current PDF format.
+
+Requirements
+The tool should:
+
+Process PDF budget and technical program documents from all Greek municipalities
+Extract structured data (spending categories, projects, amounts, etc.)
+Present data through an accessible web interface
+Enable users to:
+Search for specific projects or spending categories
+Track spending trends over time
+Compare spending across different municipalities
+Visualize budget allocations
+Be deployable for all 332 municipalities with minimal configuration
+Handle data updates as new budgets are published
+Technical Considerations
+PDF formats vary widely across municipalities
+May need to handle both scanned PDFs and digital-native documents
+This should be a standalone tool (could be separate from main OpenCouncil platform)
+Data validation and error handling for extraction issues
+Storage and performance considerations for handling all municipalities
+Consider how to keep data updated as new budgets are published

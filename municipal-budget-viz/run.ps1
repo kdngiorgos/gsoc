@@ -106,19 +106,6 @@ npx prisma generate
 Set-Location $ScriptDir
 
 # ---------------------------------------------------------------------------
-# Ollama health check
-# ---------------------------------------------------------------------------
-Write-Host "==> Checking Ollama server..."
-try {
-    $null = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -ErrorAction Stop
-    Write-Host "    Ollama is running."
-} catch {
-    Write-Host "ERROR: Ollama is not running. Start it with: ollama serve"
-    Write-Host "       Then pull the model: ollama pull qwen2.5:7b"
-    exit 1
-}
-
-# ---------------------------------------------------------------------------
 # ETL
 # ---------------------------------------------------------------------------
 if (-not $SkipEtl) {
@@ -127,6 +114,27 @@ if (-not $SkipEtl) {
     if (-not (Test-Path ".env")) {
         Copy-Item ".env.example" ".env"
         Write-Host "==> Created etl\.env from example"
+    }
+
+    # Check whether Claude (Haiku) or Ollama will be used
+    $HasAnthropicKey = $false
+    if (Test-Path ".env") {
+        $HasAnthropicKey = (Select-String -Path ".env" -Pattern "^ANTHROPIC_API_KEY=.+" -Quiet)
+    }
+
+    if (-not $HasAnthropicKey) {
+        Write-Host "==> Checking Ollama server (no ANTHROPIC_API_KEY found)..."
+        try {
+            $null = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -ErrorAction Stop
+            Write-Host "    Ollama is running."
+        } catch {
+            Write-Host "ERROR: Ollama is not running. Start it with: ollama serve"
+            Write-Host "       Then pull the model: ollama pull qwen2.5:7b"
+            Write-Host "       Or set ANTHROPIC_API_KEY in etl\.env to use Claude Haiku instead."
+            exit 1
+        }
+    } else {
+        Write-Host "==> ANTHROPIC_API_KEY detected - using Claude Haiku (skipping Ollama check)."
     }
 
     Write-Host "==> Installing ETL dependencies..."

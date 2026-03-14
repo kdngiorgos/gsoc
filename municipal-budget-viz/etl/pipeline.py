@@ -100,13 +100,16 @@ def process_pdf(
 
     logger.info("Processing %s  type=%s  year=%d", pdf_path.name, doc_type, year)
 
-    document_id = register_document(
+    document_id, is_new = register_document(
         filename=pdf_path.name,
         doc_type=doc_type,
         municipality=municipality,
         year=year,
         ada_code=ada_code,
     )
+    if not is_new:
+        logger.warning("Skipping extraction — document already loaded (id=%d).", document_id)
+        return
     logger.info("Registered document id=%d", document_id)
 
     if doc_type == "BUDGET":
@@ -206,6 +209,13 @@ def main() -> None:
         default=None,
         help="Limit extraction to first N pages (for fast testing on large files)",
     )
+    parser.add_argument(
+        "--manual-municipality",
+        default=None,
+        metavar="MUNICIPALITY",
+        help="Municipality name for manual --input mode (e.g. 'Παλαιό Φάληρο'). "
+             "Required when --input is used; defaults to 'Άγνωστος' with a warning if omitted.",
+    )
     args = parser.parse_args()
 
     type_map = {"budget": "BUDGET", "technical": "TECHNICAL_PROGRAM", "auto": None}
@@ -223,6 +233,14 @@ def main() -> None:
         logger.error("Input path does not exist: %s", input_path)
         sys.exit(1)
 
+    municipality = args.manual_municipality
+    if not municipality:
+        logger.warning(
+            "--manual-municipality not provided; storing municipality as 'Άγνωστος'. "
+            "Re-run with --manual-municipality 'Παλαιό Φάληρο' (etc.) for correct data."
+        )
+        municipality = "Άγνωστος"
+
     pdfs = collect_pdfs(input_path)
     if not pdfs:
         logger.warning("No PDF files found at %s", input_path)
@@ -232,7 +250,7 @@ def main() -> None:
     for pdf in pdfs:
         doc_type = forced_type or detect_doc_type(pdf)
         try:
-            process_pdf(pdf, doc_type, max_pages=args.max_pages)
+            process_pdf(pdf, doc_type, municipality=municipality, max_pages=args.max_pages)
             success += 1
         except Exception as exc:
             logger.error("Failed to process %s: %s", pdf.name, exc, exc_info=True)

@@ -1,0 +1,17 @@
+Municipal Budget and Technical Program Visualization Tool
+Brief Explanation
+All 332 Greek municipalities publish annual budgets (προϋπολογισμοί) and technical programs (τεχνικά προγράμματα) as PDFs — hundreds of pages of financial data and infrastructure projects that citizens struggle to understand. This project will build a standalone tool that processes these PDFs, extracts structured data, and presents it through an accessible interface. Users will be able to search projects, track spending over time, compare municipalities, and visualize budget allocations. The tool will handle the varied PDF formats used across municipalities and be deployable for all 332 Greek municipalities with minimal configuration.
+
+This tool addresses a fundamental transparency gap in Greek local government. While budget data is technically public, it is practically inaccessible to citizens due to its format and complexity. OpenCouncil's network of 10+ municipal partners provides immediate access to real budget documents for development and testing, and a clear path to adoption across Greece. The tool will be fully open-source and designed for reuse by other civic tech initiatives. This project complements OpenCouncil's core mission of making municipal governance transparent and accessible.
+
+Expected Results
+1. PDF processing pipeline: Build robust extraction system that handles various PDF formats and structures, validate data quality 2.Data model and API: Design database schema, create API endpoints, implement search and comparison features 3. User interface and deployment: Build accessible frontend for exploring budgets and projects, deploy for multiple municipalities, write documentation
+
+Duration of the Project
+Large Project – 350 hrs
+
+Related Repositories
+https://github.com/schemalabz/opencouncil
+
+Knowledge Prerequisites
+Python, PDF processing, Data extraction, PostgreSQL, Next.js/React, Data visualization, greek language required

@@ -175,7 +175,7 @@ def _validate_project(obj: Dict) -> Optional[Dict]:
             continue
         label = (it.get("label") or "").strip()
         amount = _to_decimal(it.get("amount"))
-        if amount is not None:
+        if amount is not None and label:
             items.append({"label": label, "amount": amount})
 
     return {
